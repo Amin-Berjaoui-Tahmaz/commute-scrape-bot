@@ -1,25 +1,29 @@
 """
-Mijn NS work-trip selector & PDF downloader.
+Mijn NS work-trip pre-selector.
 
-WHAT THIS DOES NOT DO: log you in. You handle login + 2FA + navigating to
-"Journey history & transactions" yourself, with the period already set to
-the month you want. Once you're looking at that page with all trips
-loaded, come back to the terminal and press Enter.
+This is a helper, not a full automation: it never downloads anything.
+It selects (checks) the checkboxes for your work-related trips so you can
+review and download the declaration yourself on the actual NS site.
 
-WHAT THIS DOES:
-  1. Scrolls to make sure every transaction is loaded.
-  2. Reads every trip row (departure/destination stations, times, date).
-  3. Groups same-day trips into "journey chains" when one trip's
-     destination roughly matches the next trip's departure within a
-     short time gap (e.g. metro -> bus -> work).
-  4. Marks a whole chain as work-relevant if ANY leg touches one of your
-     WORK_STATIONS -- so connecting legs that never mention the work
-     station by name still get included.
-  5. Shows a DRY RUN of exactly what it intends to check, grouped by day,
-     and asks for confirmation before touching any checkboxes.
-  6. After confirmation: checks the boxes, switches the bottom bar to
-     "X declarations", and clicks Download -- saving the PDF to
-     ./downloads/.
+WHAT THIS DOES NOT DO: log you in, or click Download. You handle login +
+2FA yourself, and you always press Download (if you want to) manually.
+
+WORKFLOW (repeatable, once per period/month):
+  1. On the terminal, press Enter.
+  2. In the browser, set "Journey history & transactions" to the period
+     you want (e.g. January) and click Show.
+  3. Back in the terminal, press Enter again.
+  4. The script scans the page, groups same-day trips into "journey
+     chains" (e.g. metro -> bus -> work) when one trip's destination
+     roughly matches the next trip's departure within a short time gap,
+     and marks a whole chain as work-relevant if ANY leg touches one of
+     your WORK_STATIONS.
+  5. It shows a DRY RUN of exactly what it intends to check and asks for
+     confirmation before touching any checkboxes.
+  6. After confirmation, it checks the relevant boxes (skipping any that
+     are already checked) and stops -- review/scroll/download is on you.
+  7. Change the period to the next month in the browser, come back, and
+     press Enter to repeat from step 4. Type 'q' instead of Enter to quit.
 
 Usage:
     python3 ns_select_and_download.py
@@ -28,24 +32,16 @@ Requirements:
     pip install playwright --break-system-packages
     playwright install chromium
 """
+
 import re
 import time
 from dataclasses import dataclass
 from itertools import groupby
-from pathlib import Path
 from typing import Optional
 
 from playwright.sync_api import Page, sync_playwright
 
 WORK_STATIONS = ["Sliedrecht", "Ketelhaven"]
-DOWNLOAD_DIR = Path("./downloads")
-DOWNLOAD_DIR.mkdir(exist_ok=True)
-
-# If True: after checking the boxes, switch to "declarations" and download
-# the PDF automatically. If False: stop right after checking the boxes so
-# you can scroll through the page yourself and validate what got checked
-# before deciding to download.
-DOWNLOAD_PDF = True
 
 # Max minutes allowed between one leg's checkout and the next leg's checkin
 # for them to be considered the same journey (e.g. transfer time between
@@ -55,7 +51,9 @@ MAX_TRANSFER_GAP_MINUTES = 20
 # Known OV carriers -- used to split destination station from carrier name
 # when they're concatenated without whitespace in the row text, e.g.
 # "Rotterdam, ZuidpleinR-net€ 6.03" -> dest="Rotterdam, Zuidplein"
-CARRIERS_RE = re.compile(r"R-net|RET|NS|HTM|Arriva|Connexxion|Keolis|Syntus|GVB|EBS|Qbuzz")
+CARRIERS_RE = re.compile(
+    r"R-net|RET|NS|HTM|Arriva|Connexxion|Keolis|Syntus|GVB|EBS|Qbuzz"
+)
 DATE_RE = (
     r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+"
     r"(January|February|March|April|May|June|July|August|September|October|November|December)"
@@ -186,7 +184,10 @@ def get_rows_with_dates(page: Page, retries: int = 5) -> list[dict]:
         try:
             return page.evaluate(SCRAPE_ROWS_JS)
         except Exception as e:
-            if "context was destroyed" in str(e).lower() or "navigation" in str(e).lower():
+            if (
+                "context was destroyed" in str(e).lower()
+                or "navigation" in str(e).lower()
+            ):
                 time.sleep(0.5)
                 continue
             raise
@@ -227,7 +228,9 @@ def dump_diagnostics(page: Page, path: str = "debug_dump.txt") -> None:
             f.write(s + "\n\n")
         f.write("--- rows with dates (first 15) ---\n")
         for i, r in enumerate(rows[:15]):
-            f.write(f"[{i}] id={r.get('id')!r} date={r.get('date')!r}\n     text={r.get('text')!r}\n\n")
+            f.write(
+                f"[{i}] id={r.get('id')!r} date={r.get('date')!r}\n     text={r.get('text')!r}\n\n"
+            )
     page.screenshot(path="debug_screenshot.png", full_page=False)
     print(f"\nWrote diagnostics to {path} and debug_screenshot.png")
 
@@ -235,6 +238,7 @@ def dump_diagnostics(page: Page, path: str = "debug_dump.txt") -> None:
 # --------------------------------------------------------------------------
 # Trip parsing & journey-chain building
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class Trip:
@@ -247,7 +251,9 @@ class Trip:
 
     @property
     def touches_work(self) -> bool:
-        return any(s in self.dep_station or s in self.dest_station for s in WORK_STATIONS)
+        return any(
+            s in self.dep_station or s in self.dest_station for s in WORK_STATIONS
+        )
 
 
 def normalize_station(name: str) -> str:
@@ -265,7 +271,9 @@ def to_minutes(hhmm: str) -> int:
     return int(h) * 60 + int(m)
 
 
-def parse_trip_row(checkbox_id: Optional[str], date: Optional[str], text: Optional[str]) -> Optional[Trip]:
+def parse_trip_row(
+    checkbox_id: Optional[str], date: Optional[str], text: Optional[str]
+) -> Optional[Trip]:
     """Pulls (checkin, dep_station, checkout, dest_station) out of a row's
     flattened text, e.g.:
         '08:24Rotterdam, Zuidplein (perron G08:58Sliedrecht, Station BaanhoekR-net€ 4.99 Declarations'
@@ -287,20 +295,28 @@ def parse_trip_row(checkbox_id: Optional[str], date: Optional[str], text: Option
     return Trip(checkbox_id, date, times[0], dep_station, times[1], dest_station)
 
 
-def build_chains(trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES) -> list[list[Trip]]:
+def build_chains(
+    trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES
+) -> list[list[Trip]]:
     """Groups each day's trips (sorted chronologically) into journey chains.
     A chain only ever links *adjacent* trips in that sorted order (one
     trip's destination roughly matching the next's departure within the
     transfer window), so a single linear scan is enough -- no union-find
     needed."""
     chains = []
-    for _date, day_trips in groupby(sorted(trips, key=lambda t: (t.date, to_minutes(t.checkin))), key=lambda t: t.date):
+    for _date, day_trips in groupby(
+        sorted(trips, key=lambda t: (t.date, to_minutes(t.checkin))),
+        key=lambda t: t.date,
+    ):
         current: list[Trip] = []
         for t in day_trips:
             if current:
                 prev = current[-1]
                 gap = to_minutes(t.checkin) - to_minutes(prev.checkout)
-                if not (0 <= gap <= max_gap_minutes and stations_match(prev.dest_station, t.dep_station)):
+                if not (
+                    0 <= gap <= max_gap_minutes
+                    and stations_match(prev.dest_station, t.dep_station)
+                ):
                     chains.append(current)
                     current = []
             current.append(t)
@@ -309,7 +325,9 @@ def build_chains(trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINU
     return chains
 
 
-def select_work_chains(trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES) -> list[Trip]:
+def select_work_chains(
+    trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES
+) -> list[Trip]:
     """Returns the flat list of Trips belonging to a chain that touches any
     WORK_STATIONS entry on at least one leg."""
     return [
@@ -350,17 +368,22 @@ def collect_trips(page: Page) -> list[Trip]:
 # Page interaction: dry run, selecting, switching to declarations, download
 # --------------------------------------------------------------------------
 
+
 def print_dry_run(work_trips: list[Trip]) -> None:
     by_day: dict[str, list[Trip]] = {}
     for t in work_trips:
         by_day.setdefault(t.date, []).append(t)
 
-    print(f"\n[DRY RUN] {len(work_trips)} trip(s) would be checked, across {len(by_day)} day(s):\n")
+    print(
+        f"\n[DRY RUN] {len(work_trips)} trip(s) would be checked, across {len(by_day)} day(s):\n"
+    )
     for date, day_trips in by_day.items():
         print(f"  {date}")
         for t in sorted(day_trips, key=lambda t: to_minutes(t.checkin)):
             tag = " *" if t.touches_work else "  (connecting leg)"
-            print(f"    {t.checkin}-{t.checkout}  {t.dep_station} -> {t.dest_station}{tag}")
+            print(
+                f"    {t.checkin}-{t.checkout}  {t.dep_station} -> {t.dest_station}{tag}"
+            )
     print()
 
 
@@ -368,14 +391,20 @@ def check_one(page: Page, t: Trip) -> None:
     box = page.locator(f'[id="{t.checkbox_id}"]').first
     box.scroll_into_view_if_needed()
     time.sleep(0.1)
-    before_check, before_count = box.is_checked(), get_declared_count(page)
+
+    if box.is_checked():
+        print(
+            f"  {t.checkin} {t.dep_station[:25]:<25} -> {t.dest_station[:25]:<25} | already checked, skipped"
+        )
+        return
+
+    before_count = get_declared_count(page)
     page.evaluate("el => el.click()", box.element_handle())
     time.sleep(0.3)
     after_check, after_count = box.is_checked(), get_declared_count(page)
     print(
         f"  {t.checkin} {t.dep_station[:25]:<25} -> {t.dest_station[:25]:<25} | "
-        f"dom: {str(before_check)[0]}->{str(after_check)[0]}  "
-        f"declarations: {before_count}->{after_count}"
+        f"dom: F->{str(after_check)[0]}  declarations: {before_count}->{after_count}"
     )
 
 
@@ -386,36 +415,40 @@ def check_trips(page: Page, work_trips: list[Trip]) -> None:
             check_one(page, t)
 
 
-def switch_to_declarations_and_download(page: Page) -> Path:
-    before = get_declared_count(page)
-    print(f"On-page declared count BEFORE switching radio: {before}")
-
-    radios = page.locator("input[type=radio]")
-    if radios.count() < 2:
-        raise RuntimeError(
-            f"Expected at least 2 radio buttons in the download bar, found "
-            f"{radios.count()}. Page may not be fully loaded."
-        )
-    radios.nth(1).check(force=True)  # second radio = "declarations"
-    time.sleep(1)  # give Angular a tick to recompute the filtered list
-
-    is_checked, after = radios.nth(1).is_checked(), get_declared_count(page)
-    print(f"Radio[1] checked after click: {is_checked}")
-    print(f"On-page declared count AFTER switching radio: {after}")
-    if not is_checked:
-        raise RuntimeError("The 'declarations' radio did not register as checked -- stopping before download.")
-
-    with page.expect_download() as download_info:
-        page.get_by_role("button", name=re.compile("Download", re.I)).click()
-    download = download_info.value
-    out_path = DOWNLOAD_DIR / download.suggested_filename
-    download.save_as(out_path)
-    return out_path
-
-
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
+
+
+def run_one_period(page: Page) -> None:
+    """Scans whatever period is currently shown on the page, and checks
+    the boxes for work-relevant trip chains after confirmation. Never
+    downloads anything -- that's a manual step on the actual site."""
+    page.wait_for_load_state("networkidle")
+    page.wait_for_selector("input[type=checkbox]", timeout=15000)
+    time.sleep(1)
+
+    trips = collect_trips(page)
+    print(f"Parsed {len(trips)} trip rows from the page.")
+
+    work_trips = select_work_chains(trips)
+    if not work_trips:
+        print(
+            "No matching trips/chains found -- dumping diagnostics so we can see what's actually on the page..."
+        )
+        dump_diagnostics(page)
+        return
+
+    print_dry_run(work_trips)
+    answer = input(f"Check these {len(work_trips)} trip(s)? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Skipped -- no checkboxes were touched.")
+        return
+
+    check_trips(page, work_trips)
+    print(f"Done. On-page declared count: {get_declared_count(page)}")
+    print("Review/scroll/download on the actual page whenever you're ready.")
+
 
 def main() -> None:
     with sync_playwright() as p:
@@ -432,57 +465,32 @@ def main() -> None:
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
         )
-        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         context.add_init_script(JS_HELPERS)  # available on every page/navigation
         page = context.new_page()
         page.goto("https://www.ns.nl/")
 
         input(
-            "\n>>> Click 'Log in' yourself, log in, go to 'Journey history & "
-            "transactions', set the period you want, and click Show.\n"
-            ">>> Once all trips for that month are visible, press Enter here to continue...\n"
+            "\n>>> Click 'Log in' yourself, log in, and go to 'Journey history & "
+            "transactions'.\n>>> Press Enter here once you're there...\n"
         )
 
-        page.wait_for_load_state("networkidle")
-        page.wait_for_selector("input[type=checkbox]", timeout=15000)
-        time.sleep(1)
+        while True:
+            answer = (
+                input(
+                    "\n>>> Set the period you want (e.g. a month) and click Show.\n"
+                    ">>> Press Enter to scan + pre-select that period, or type 'q' to quit: "
+                )
+                .strip()
+                .lower()
+            )
+            if answer == "q":
+                break
+            run_one_period(page)
 
-        trips = collect_trips(page)
-        print(f"Parsed {len(trips)} trip rows from the page.")
-
-        work_trips = select_work_chains(trips)
-        if not work_trips:
-            print("No matching trips/chains found -- dumping diagnostics so we can see what's actually on the page...")
-            dump_diagnostics(page)
-            input("Press Enter to close the browser...")
-            return
-
-        print_dry_run(work_trips)
-        prompt = (
-            f"Proceed to check these {len(work_trips)} trip(s)"
-            + (" and download? [y/N] " if DOWNLOAD_PDF else " (no download -- DOWNLOAD_PDF is False)? [y/N] ")
-        )
-        answer = input(prompt).strip().lower()
-        if answer != "y":
-            print("Aborted -- no checkboxes were touched.")
-            input("Press Enter to close the browser...")
-            return
-
-        check_trips(page, work_trips)
-        print(f"Checked {len(work_trips)} trips on the page.")
-        print(f"On-page declared count right after selection: {get_declared_count(page)}")
-
-        if not DOWNLOAD_PDF:
-            print("\nDOWNLOAD_PDF is False -- stopping here so you can scroll through the "
-                  "page and validate the checked trips yourself. Nothing further will be "
-                  "clicked; the browser will stay open until you close it below.")
-            input("Press Enter to close the browser...")
-            return
-
-        out_path = switch_to_declarations_and_download(page)
-        print(f"Downloaded: {out_path}")
-
-        input("Done. Press Enter to close the browser...")
+        print("\nDone -- closing browser.")
 
 
 if __name__ == "__main__":
