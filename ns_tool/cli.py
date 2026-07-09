@@ -43,7 +43,6 @@ from playwright.sync_api import Page, sync_playwright
 
 from .ns_dom import (
     JS_HELPERS,
-    dump_diagnostics,
     get_declared_count,
     get_rows_with_dates,
     scroll_to_load_all,
@@ -91,8 +90,8 @@ def collect_trips(page: Page) -> list[Trip]:
         # when things are working fine.
         logger.info(
             "%d checkbox rows could not be parsed (no date/text found) and "
-            "were skipped. If this looks high relative to the total, check "
-            "debug_dump.txt after a run with no matches.",
+            "were skipped. If this looks high relative to the total, the "
+            "row markup on the page may have changed.",
             skipped,
         )
     return trips
@@ -175,9 +174,9 @@ def run_one_period(page: Page, work_stations: list[str], max_gap_minutes: int) -
     work_trips = select_work_chains(trips, work_stations, max_gap_minutes)
     if not work_trips:
         print(
-            "No matching trips/chains found -- dumping diagnostics so we can see what's actually on the page..."
+            "No matching trips/chains found on this page -- check the period "
+            "is showing and your --work-station values match the station names."
         )
-        dump_diagnostics(page)
         return
 
     print_dry_run(work_trips, work_stations)

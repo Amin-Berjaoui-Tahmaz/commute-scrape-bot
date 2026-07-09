@@ -9,7 +9,7 @@ on the actual NS site. Never logs in and never clicks Download for you.
 ```
 ns_tool/
   ns_dom.py      Playwright page interaction: shadow-DOM JS helpers,
-                 scrolling, scraping, diagnostics dump. Needs a browser.
+                 scrolling, scraping. Needs a browser.
   trip_model.py  Pure Python: Trip, parsing, station matching, chain
                  building. No Playwright dependency -- this is where the
                  unit tests live.
