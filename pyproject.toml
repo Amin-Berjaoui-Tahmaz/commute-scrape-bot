@@ -1,10 +1,41 @@
 [project]
-name = "commute-scrape-bot"
+name = "ns-tool"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.12"
+description = "Mijn NS work-trip pre-selector -- selects work-relevant declaration checkboxes for manual review/download."
+requires-python = ">=3.10"
 dependencies = [
-    "playwright>=1.60.0",
+    "playwright>=1.44",
     "ruff>=0.15.20",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "pytest>=8.0",
+]
+
+[project.scripts]
+ns-select = "ns_tool.cli:main"
+
+[tool.setuptools]
+packages = ["ns_tool"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "ns_tool.*"
+strict = true
+
+# Tests favor readability (untyped fixtures/helpers) over strict typing.
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
