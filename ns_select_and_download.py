@@ -32,7 +32,6 @@ Requirements:
     pip install playwright --break-system-packages
     playwright install chromium
 """
-
 import re
 import time
 from dataclasses import dataclass
@@ -51,9 +50,7 @@ MAX_TRANSFER_GAP_MINUTES = 20
 # Known OV carriers -- used to split destination station from carrier name
 # when they're concatenated without whitespace in the row text, e.g.
 # "Rotterdam, ZuidpleinR-net€ 6.03" -> dest="Rotterdam, Zuidplein"
-CARRIERS_RE = re.compile(
-    r"R-net|RET|NS|HTM|Arriva|Connexxion|Keolis|Syntus|GVB|EBS|Qbuzz"
-)
+CARRIERS_RE = re.compile(r"R-net|RET|NS|HTM|Arriva|Connexxion|Keolis|Syntus|GVB|EBS|Qbuzz")
 DATE_RE = (
     r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+"
     r"(January|February|March|April|May|June|July|August|September|October|November|December)"
@@ -184,10 +181,7 @@ def get_rows_with_dates(page: Page, retries: int = 5) -> list[dict]:
         try:
             return page.evaluate(SCRAPE_ROWS_JS)
         except Exception as e:
-            if (
-                "context was destroyed" in str(e).lower()
-                or "navigation" in str(e).lower()
-            ):
+            if "context was destroyed" in str(e).lower() or "navigation" in str(e).lower():
                 time.sleep(0.5)
                 continue
             raise
@@ -228,9 +222,7 @@ def dump_diagnostics(page: Page, path: str = "debug_dump.txt") -> None:
             f.write(s + "\n\n")
         f.write("--- rows with dates (first 15) ---\n")
         for i, r in enumerate(rows[:15]):
-            f.write(
-                f"[{i}] id={r.get('id')!r} date={r.get('date')!r}\n     text={r.get('text')!r}\n\n"
-            )
+            f.write(f"[{i}] id={r.get('id')!r} date={r.get('date')!r}\n     text={r.get('text')!r}\n\n")
     page.screenshot(path="debug_screenshot.png", full_page=False)
     print(f"\nWrote diagnostics to {path} and debug_screenshot.png")
 
@@ -238,7 +230,6 @@ def dump_diagnostics(page: Page, path: str = "debug_dump.txt") -> None:
 # --------------------------------------------------------------------------
 # Trip parsing & journey-chain building
 # --------------------------------------------------------------------------
-
 
 @dataclass
 class Trip:
@@ -251,9 +242,7 @@ class Trip:
 
     @property
     def touches_work(self) -> bool:
-        return any(
-            s in self.dep_station or s in self.dest_station for s in WORK_STATIONS
-        )
+        return any(s in self.dep_station or s in self.dest_station for s in WORK_STATIONS)
 
 
 def normalize_station(name: str) -> str:
@@ -271,9 +260,7 @@ def to_minutes(hhmm: str) -> int:
     return int(h) * 60 + int(m)
 
 
-def parse_trip_row(
-    checkbox_id: Optional[str], date: Optional[str], text: Optional[str]
-) -> Optional[Trip]:
+def parse_trip_row(checkbox_id: Optional[str], date: Optional[str], text: Optional[str]) -> Optional[Trip]:
     """Pulls (checkin, dep_station, checkout, dest_station) out of a row's
     flattened text, e.g.:
         '08:24Rotterdam, Zuidplein (perron G08:58Sliedrecht, Station BaanhoekR-net€ 4.99 Declarations'
@@ -295,28 +282,20 @@ def parse_trip_row(
     return Trip(checkbox_id, date, times[0], dep_station, times[1], dest_station)
 
 
-def build_chains(
-    trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES
-) -> list[list[Trip]]:
+def build_chains(trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES) -> list[list[Trip]]:
     """Groups each day's trips (sorted chronologically) into journey chains.
     A chain only ever links *adjacent* trips in that sorted order (one
     trip's destination roughly matching the next's departure within the
     transfer window), so a single linear scan is enough -- no union-find
     needed."""
     chains = []
-    for _date, day_trips in groupby(
-        sorted(trips, key=lambda t: (t.date, to_minutes(t.checkin))),
-        key=lambda t: t.date,
-    ):
+    for _date, day_trips in groupby(sorted(trips, key=lambda t: (t.date, to_minutes(t.checkin))), key=lambda t: t.date):
         current: list[Trip] = []
         for t in day_trips:
             if current:
                 prev = current[-1]
                 gap = to_minutes(t.checkin) - to_minutes(prev.checkout)
-                if not (
-                    0 <= gap <= max_gap_minutes
-                    and stations_match(prev.dest_station, t.dep_station)
-                ):
+                if not (0 <= gap <= max_gap_minutes and stations_match(prev.dest_station, t.dep_station)):
                     chains.append(current)
                     current = []
             current.append(t)
@@ -325,9 +304,7 @@ def build_chains(
     return chains
 
 
-def select_work_chains(
-    trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES
-) -> list[Trip]:
+def select_work_chains(trips: list[Trip], max_gap_minutes: int = MAX_TRANSFER_GAP_MINUTES) -> list[Trip]:
     """Returns the flat list of Trips belonging to a chain that touches any
     WORK_STATIONS entry on at least one leg."""
     return [
@@ -368,22 +345,17 @@ def collect_trips(page: Page) -> list[Trip]:
 # Page interaction: dry run, selecting, switching to declarations, download
 # --------------------------------------------------------------------------
 
-
 def print_dry_run(work_trips: list[Trip]) -> None:
     by_day: dict[str, list[Trip]] = {}
     for t in work_trips:
         by_day.setdefault(t.date, []).append(t)
 
-    print(
-        f"\n[DRY RUN] {len(work_trips)} trip(s) would be checked, across {len(by_day)} day(s):\n"
-    )
+    print(f"\n[DRY RUN] {len(work_trips)} trip(s) would be checked, across {len(by_day)} day(s):\n")
     for date, day_trips in by_day.items():
         print(f"  {date}")
         for t in sorted(day_trips, key=lambda t: to_minutes(t.checkin)):
             tag = " *" if t.touches_work else "  (connecting leg)"
-            print(
-                f"    {t.checkin}-{t.checkout}  {t.dep_station} -> {t.dest_station}{tag}"
-            )
+            print(f"    {t.checkin}-{t.checkout}  {t.dep_station} -> {t.dest_station}{tag}")
     print()
 
 
@@ -393,9 +365,7 @@ def check_one(page: Page, t: Trip) -> None:
     time.sleep(0.1)
 
     if box.is_checked():
-        print(
-            f"  {t.checkin} {t.dep_station[:25]:<25} -> {t.dest_station[:25]:<25} | already checked, skipped"
-        )
+        print(f"  {t.checkin} {t.dep_station[:25]:<25} -> {t.dest_station[:25]:<25} | already checked, skipped")
         return
 
     before_count = get_declared_count(page)
@@ -419,7 +389,6 @@ def check_trips(page: Page, work_trips: list[Trip]) -> None:
 # Main
 # --------------------------------------------------------------------------
 
-
 def run_one_period(page: Page) -> None:
     """Scans whatever period is currently shown on the page, and checks
     the boxes for work-relevant trip chains after confirmation. Never
@@ -433,18 +402,11 @@ def run_one_period(page: Page) -> None:
 
     work_trips = select_work_chains(trips)
     if not work_trips:
-        print(
-            "No matching trips/chains found -- dumping diagnostics so we can see what's actually on the page..."
-        )
+        print("No matching trips/chains found -- dumping diagnostics so we can see what's actually on the page...")
         dump_diagnostics(page)
         return
 
     print_dry_run(work_trips)
-    answer = input(f"Check these {len(work_trips)} trip(s)? [y/N] ").strip().lower()
-    if answer != "y":
-        print("Skipped -- no checkboxes were touched.")
-        return
-
     check_trips(page, work_trips)
     print(f"Done. On-page declared count: {get_declared_count(page)}")
     print("Review/scroll/download on the actual page whenever you're ready.")
@@ -465,9 +427,7 @@ def main() -> None:
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
         )
-        context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         context.add_init_script(JS_HELPERS)  # available on every page/navigation
         page = context.new_page()
         page.goto("https://www.ns.nl/")
@@ -478,14 +438,10 @@ def main() -> None:
         )
 
         while True:
-            answer = (
-                input(
-                    "\n>>> Set the period you want (e.g. a month) and click Show.\n"
-                    ">>> Press Enter to scan + pre-select that period, or type 'q' to quit: "
-                )
-                .strip()
-                .lower()
-            )
+            answer = input(
+                "\n>>> Set the period you want (e.g. a month) and click Show.\n"
+                ">>> Press Enter to scan + pre-select that period, or type 'q' to quit: "
+            ).strip().lower()
             if answer == "q":
                 break
             run_one_period(page)
