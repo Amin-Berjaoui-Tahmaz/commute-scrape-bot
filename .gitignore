@@ -3,3 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .mypy_cache/
+downloads/
+
+# Personal config -- each colleague's own work stations, not shared.
+config.yaml
