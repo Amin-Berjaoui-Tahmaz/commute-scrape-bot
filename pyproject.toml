@@ -5,18 +5,18 @@ description = "Mijn NS work-trip pre-selector -- selects work-relevant declarati
 requires-python = ">=3.10"
 dependencies = [
     "playwright>=1.44",
-    "ruff>=0.15.20",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10",
     "pytest>=8.0",
+    "types-pyyaml>=6.0.12",
 ]
 
 [project.scripts]
 ns-select = "ns_tool.cli:main"
-
 [tool.setuptools]
 packages = ["ns_tool"]
 
