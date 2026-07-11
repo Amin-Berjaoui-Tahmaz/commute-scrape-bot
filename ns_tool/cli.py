@@ -31,6 +31,11 @@ Usage:
     python3 -m ns_tool.cli
     python3 -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
     python3 -m ns_tool.cli --debug   # verbose internal diagnostics on stderr
+
+Work stations and the transfer-gap window can also be set once in
+config.yaml (copy config.example.yaml to get started) instead of typing
+CLI flags every time -- handy for sharing this with colleagues who each
+commute to different stations. CLI flags override the file when given.
 """
 
 from __future__ import annotations
@@ -38,9 +43,11 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
+from .config import load_config
 from .ns_dom import (
     JS_HELPERS,
     get_declared_count,
@@ -48,9 +55,7 @@ from .ns_dom import (
     scroll_to_load_all,
 )
 from .trip_model import (
-    DEFAULT_MAX_TRANSFER_GAP_MINUTES,
     Trip,
-    build_chains,
     parse_trip_row,
     select_work_chains,
     to_minutes,
@@ -58,8 +63,6 @@ from .trip_model import (
 )
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_WORK_STATIONS = ["Sliedrecht", "Ketelhaven"]
 
 
 # --------------------------------------------------------------------------
@@ -175,7 +178,8 @@ def run_one_period(page: Page, work_stations: list[str], max_gap_minutes: int) -
     if not work_trips:
         print(
             "No matching trips/chains found on this page -- check the period "
-            "is showing and your --work-station values match the station names."
+            "is showing and your work_stations (config.yaml or --work-station) "
+            "match the station names on the page."
         )
         return
 
@@ -196,25 +200,32 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "A station name (substring match) that marks a trip as work-related. "
-            f"Repeatable. Default: {DEFAULT_WORK_STATIONS}"
+            "Repeatable. Overrides config.yaml if given."
         ),
     )
     parser.add_argument(
         "--max-gap",
         dest="max_gap_minutes",
         type=int,
-        default=DEFAULT_MAX_TRANSFER_GAP_MINUTES,
-        help="Max minutes between legs to still count as one journey chain (default: %(default)s).",
+        default=None,
+        help=(
+            "Max minutes between legs to still count as one journey chain. "
+            "Overrides config.yaml if given."
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        dest="config_path",
+        type=Path,
+        default=None,
+        help="Path to the config file (default: config.yaml in the current directory, or the packaged config.yaml if that file is absent).",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
         help="Log internal diagnostics (scroll/retry/DOM detail) to stderr.",
     )
-    args = parser.parse_args()
-    if not args.work_stations:
-        args.work_stations = DEFAULT_WORK_STATIONS
-    return args
+    return parser.parse_args()
 
 
 def main() -> None:
@@ -223,6 +234,17 @@ def main() -> None:
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
+
+    config = load_config(args.config_path)
+    work_stations = (
+        args.work_stations if args.work_stations is not None else config.work_stations
+    )
+    max_gap_minutes = (
+        args.max_gap_minutes
+        if args.max_gap_minutes is not None
+        else config.max_gap_minutes
+    )
+    logger.debug("work_stations=%s max_gap_minutes=%s", work_stations, max_gap_minutes)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -259,7 +281,7 @@ def main() -> None:
             if answer == "q":
                 break
             try:
-                run_one_period(page, args.work_stations, args.max_gap_minutes)
+                run_one_period(page, work_stations, max_gap_minutes)
             except Exception:
                 # A selector timeout or mid-scan navigation used to crash the
                 # whole session and lose everything already checked. Now we

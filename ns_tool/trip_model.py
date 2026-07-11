@@ -19,8 +19,6 @@ CARRIERS_RE = re.compile(
     r"R-net|RET|NS|HTM|Arriva|Connexxion|Keolis|Syntus|GVB|EBS|Qbuzz"
 )
 
-DEFAULT_MAX_TRANSFER_GAP_MINUTES = 25
-
 
 @dataclass
 class Trip:
@@ -85,10 +83,7 @@ def parse_trip_row(
     return Trip(checkbox_id, date, times[0], dep_station, times[1], dest_station)
 
 
-def build_chains(
-    trips: list[Trip],
-    max_gap_minutes: int = DEFAULT_MAX_TRANSFER_GAP_MINUTES,
-) -> list[list[Trip]]:
+def build_chains(trips: list[Trip], max_gap_minutes: int) -> list[list[Trip]]:
     """Groups each day's trips (sorted chronologically) into journey chains.
     A chain only ever links *adjacent* trips in that sorted order (one
     trip's destination roughly matching the next's departure within the
@@ -117,9 +112,7 @@ def build_chains(
 
 
 def select_work_chains(
-    trips: list[Trip],
-    work_stations: Sequence[str],
-    max_gap_minutes: int = DEFAULT_MAX_TRANSFER_GAP_MINUTES,
+    trips: list[Trip], work_stations: Sequence[str], max_gap_minutes: int
 ) -> list[Trip]:
     """Returns the flat list of Trips belonging to a chain that touches any
     work_stations entry on at least one leg."""
