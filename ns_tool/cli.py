@@ -1,28 +1,29 @@
 """Mijn NS work-trip pre-selector -- CLI entry point.
 
-This is a helper, not a full automation: it never downloads anything.
-It selects (checks) the checkboxes for your work-related trips so you can
-review and download the declaration yourself on the actual NS site.
-
 WHAT THIS DOES NOT DO: log you in, or click Download. You handle login +
-2FA yourself, and you always press Download (if you want to) manually.
+2FA yourself, and you always review and click Download yourself -- the
+selection is automated, the actual download is deliberately left to a
+human, but the resulting file is still saved automatically for you.
 
 WORKFLOW (repeatable, once per period/month):
-  1. On the terminal, press Enter.
-  2. In the browser, set "Journey history & transactions" to the period
-     you want (e.g. January) and click Show.
-  3. Back in the terminal, press Enter again.
-  4. The script scans the page, groups same-day trips into "journey
+  1. In the browser, log in, go to "Journey history & transactions", set
+     it to the period you want (e.g. January), and click Show.
+  2. Back in the terminal, press Enter.
+  3. The script scans the page, groups same-day trips into "journey
      chains" (e.g. metro -> bus -> work) when one trip's destination
      roughly matches the next trip's departure within a short time gap,
      and marks a whole chain as work-relevant if ANY leg touches one of
      your work stations.
-  5. It shows a DRY RUN of exactly what it intends to check and asks for
-     confirmation before touching any checkboxes.
-  6. After confirmation, it checks the relevant boxes (skipping any that
-     are already checked) and stops -- review/scroll/download is on you.
+  4. It shows a DRY RUN of exactly what it intends to check and asks for
+     confirmation (y/N) before touching anything.
+  5. After confirmation: checks the relevant boxes (skipping any that are
+     already checked) and switches the bottom bar to "X declarations", so
+     you can see exactly what's about to be downloaded.
+  6. Review on the page, then click Download yourself whenever you're
+     ready -- it's automatically saved to ./downloads/ with its real
+     filename, regardless of when or how long you take to click it.
   7. Change the period to the next month in the browser, come back, and
-     press Enter to repeat from step 4. Type 'q' instead of Enter to quit.
+     press Enter to repeat from step 3. Type 'q' instead of Enter to quit.
   If a period scan fails partway (timeout, unexpected navigation, etc.),
   the error is logged and you're returned to the prompt to retry that
   same period -- one bad scan no longer kills the whole session.
@@ -34,7 +35,7 @@ Usage:
 
 Work stations and the transfer-gap window can also be set once in
 config.yaml (copy config.example.yaml to get started) instead of typing
-CLI flags every time -- handy for sharing this with colleagues who each
+CLI flags every time -- handy if multiple people share this tool and each
 commute to different stations. CLI flags override the file when given.
 """
 
@@ -45,7 +46,7 @@ import logging
 import time
 from pathlib import Path
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Download, Page, sync_playwright
 
 from .config import load_config
 from .ns_dom import (
@@ -53,6 +54,7 @@ from .ns_dom import (
     get_declared_count,
     get_rows_with_dates,
     scroll_to_load_all,
+    switch_to_declarations,
 )
 from .trip_model import (
     Trip,
@@ -163,10 +165,15 @@ def check_trips(page: Page, work_trips: list[Trip]) -> None:
 # --------------------------------------------------------------------------
 
 
-def run_one_period(page: Page, work_stations: list[str], max_gap_minutes: int) -> None:
-    """Scans whatever period is currently shown on the page, and checks
-    the boxes for work-relevant trip chains after confirmation. Never
-    downloads anything -- that's a manual step on the actual site."""
+def run_one_period(
+    page: Page, work_stations: list[str], max_gap_minutes: int, download_dir: Path
+) -> None:
+    """Scans whatever period is currently shown on the page, checks the
+    boxes for work-relevant trip chains after confirmation, and switches
+    to the declarations filter so the person can review and click
+    Download themselves -- the actual download is deliberately not
+    automated, and is instead caught by a download listener registered
+    on the browser context (see main())."""
     page.wait_for_load_state("networkidle")
     page.wait_for_selector("input[type=checkbox]", timeout=15000)
     time.sleep(1)
@@ -184,14 +191,29 @@ def run_one_period(page: Page, work_stations: list[str], max_gap_minutes: int) -
         return
 
     print_dry_run(work_trips, work_stations)
+    answer = (
+        input(f"Proceed to check these {len(work_trips)} trip(s)? [y/N] ")
+        .strip()
+        .lower()
+    )
+    if answer != "y":
+        print("Aborted -- no checkboxes were touched.")
+        return
+
     check_trips(page, work_trips)
-    print(f"Done. On-page declared count: {get_declared_count(page)}")
-    print("Review/scroll/download on the actual page whenever you're ready.")
+    print(f"Checked trips. On-page declared count: {get_declared_count(page)}")
+
+    declared_count = switch_to_declarations(page)
+    print(
+        f"Switched to the declarations view ({declared_count} declared). "
+        f"Review on the page, then click Download when ready -- it'll be "
+        f"saved automatically to {download_dir}."
+    )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Pre-select work-relevant trips on Mijn NS for manual review/download.",
+        description="Select work-relevant trips on Mijn NS; auto-saves whatever you download.",
     )
     parser.add_argument(
         "--work-station",
@@ -217,8 +239,8 @@ def parse_args() -> argparse.Namespace:
         "--config",
         dest="config_path",
         type=Path,
-        default=None,
-        help="Path to the config file (default: config.yaml in the current directory, or the packaged config.yaml if that file is absent).",
+        default=Path("config.yaml"),
+        help="Path to the config file (default: %(default)s).",
     )
     parser.add_argument(
         "--debug",
@@ -236,21 +258,34 @@ def main() -> None:
     )
 
     config = load_config(args.config_path)
-    work_stations = (
-        args.work_stations if args.work_stations is not None else config.work_stations
-    )
+    work_stations = args.work_stations if args.work_stations is not None else config.work_stations
     max_gap_minutes = (
-        args.max_gap_minutes
-        if args.max_gap_minutes is not None
-        else config.max_gap_minutes
+        args.max_gap_minutes if args.max_gap_minutes is not None else config.max_gap_minutes
     )
     logger.debug("work_stations=%s max_gap_minutes=%s", work_stations, max_gap_minutes)
+
+    download_dir = Path("downloads").resolve()
+    download_dir.mkdir(exist_ok=True)
+
+    def save_manual_download(download: Download) -> None:
+        # Keep the listener passive so the user can review the download in the
+        # browser before deciding whether to save it.
+        print(
+            f"\nDownload detected ({download.suggested_filename!r}); review it in the browser before saving it manually."
+        )
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=False,
             channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=PrintPreviewUI",
+                "--disable-pdf-viewer-app",
+                "--disable-extensions",
+                "--disable-plugins-discovery",
+                "--allow-file-access-from-files",
+            ],
         )
         context = browser.new_context(
             accept_downloads=True,
@@ -260,28 +295,32 @@ def main() -> None:
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
         )
+        context.on("download", save_manual_download)
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         context.add_init_script(JS_HELPERS)  # available on every page/navigation
         page = context.new_page()
+        page.on("download", save_manual_download)
         page.goto("https://www.ns.nl/")
 
-        input(
-            "\n>>> Click 'Log in' yourself, log in, and go to 'Journey history & "
-            "transactions'.\n>>> Press Enter here once you're there...\n"
+        print(f"Downloads will be saved to: {download_dir}")
+
+        first_prompt = (
+            "\n>>> Click 'Log in', log in, and go to 'Journey history & "
+            "transactions'. Set the period you want and click Show.\n"
+            ">>> Press Enter here once you're ready to scan + select, or 'q' to quit: "
         )
+        later_prompt = "\nPress Enter to scan + select, or 'q' to quit: "
+        prompt = first_prompt
 
         while True:
-            answer = (
-                input("\nPress Enter to scan + select, or 'q' to quit: ")
-                .strip()
-                .lower()
-            )
+            answer = input(prompt).strip().lower()
+            prompt = later_prompt
             if answer == "q":
                 break
             try:
-                run_one_period(page, work_stations, max_gap_minutes)
+                run_one_period(page, work_stations, max_gap_minutes, download_dir)
             except Exception:
                 # A selector timeout or mid-scan navigation used to crash the
                 # whole session and lose everything already checked. Now we
