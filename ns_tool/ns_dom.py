@@ -20,7 +20,6 @@ class ScrapedRow(TypedDict):
     date: Optional[str]
     text: Optional[str]
 
-
 logger = logging.getLogger(__name__)
 
 DATE_RE = (
@@ -171,3 +170,27 @@ def get_declared_count(page: Page) -> Optional[int]:
     """Reads the live 'X declarations' counter off the page."""
     m = re.search(r"(\d+)\s*declarat", page.evaluate(DECLARED_COUNT_JS), re.IGNORECASE)
     return int(m.group(1)) if m else None
+
+
+def switch_to_declarations(page: Page) -> Optional[int]:
+    """Switches the bottom filter bar to "X declarations" so the person
+    can see exactly what's about to be downloaded and click Download
+    themselves -- deliberately not automated, since a human needs to
+    review before that happens. Returns the declared count shown after
+    switching, or None if it couldn't be read."""
+    radios = page.locator("input[type=radio]")
+    n = radios.count()
+    logger.debug("found %d radio button(s) on the page", n)
+    if n < 2:
+        raise RuntimeError(
+            f"Expected at least 2 radio buttons in the download bar, found "
+            f"{n}. Page may not be fully loaded."
+        )
+    radios.nth(1).check(force=True)  # second radio = the "declarations" one
+    time.sleep(1)  # give Angular a tick to recompute the filtered list
+
+    if not radios.nth(1).is_checked():
+        raise RuntimeError(
+            "The 'declarations' radio did not register as checked."
+        )
+    return get_declared_count(page)
