@@ -14,15 +14,14 @@ WORKFLOW (repeatable, once per period/month):
      roughly matches the next trip's departure within a short time gap,
      and marks a whole chain as work-relevant if ANY leg touches one of
      your work stations.
-  4. It shows a DRY RUN of exactly what it intends to check and asks for
-     confirmation (y/N) before touching anything.
-  5. After confirmation: checks the relevant boxes (skipping any that are
+  4. It prints exactly what it's about to check (a DRY RUN summary) and
+     then immediately checks the relevant boxes (skipping any that are
      already checked) and switches the bottom bar to "X declarations", so
      you can see exactly what's about to be downloaded.
-  6. Review on the page, then click Download yourself whenever you're
+  5. Review on the page, then click Download yourself whenever you're
      ready -- it's automatically saved to ./downloads/ with its real
      filename, regardless of when or how long you take to click it.
-  7. Change the period to the next month in the browser, come back, and
+  6. Change the period to the next month in the browser, come back, and
      press Enter to repeat from step 3. Type 'q' instead of Enter to quit.
   If a period scan fails partway (timeout, unexpected navigation, etc.),
   the error is logged and you're returned to the prompt to retry that
@@ -43,12 +42,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import queue
 import time
 from pathlib import Path
 
 from playwright.sync_api import Download, Page, sync_playwright
 
 from .config import load_config
+from .downloads import build_download_target, save_download_to_path
 from .ns_dom import (
     JS_HELPERS,
     get_declared_count,
@@ -191,15 +192,6 @@ def run_one_period(
         return
 
     print_dry_run(work_trips, work_stations)
-    answer = (
-        input(f"Proceed to check these {len(work_trips)} trip(s)? [y/N] ")
-        .strip()
-        .lower()
-    )
-    if answer != "y":
-        print("Aborted -- no checkboxes were touched.")
-        return
-
     check_trips(page, work_trips)
     print(f"Checked trips. On-page declared count: {get_declared_count(page)}")
 
@@ -267,12 +259,26 @@ def main() -> None:
     download_dir = Path("downloads").resolve()
     download_dir.mkdir(exist_ok=True)
 
-    def save_manual_download(download: Download) -> None:
-        # Keep the listener passive so the user can review the download in the
-        # browser before deciding whether to save it.
-        print(
-            f"\nDownload detected ({download.suggested_filename!r}); review it in the browser before saving it manually."
-        )
+    # Playwright's "download" event fires on its own dispatcher greenlet.
+    # Calling another sync Playwright method (save_as) from inside that
+    # handler stalls until the main thread makes its own next Playwright
+    # call -- which means it may never happen at all if you quit ('q')
+    # right after clicking Download, silently losing the file. So the
+    # handler only queues the Download (no Playwright calls); the actual
+    # save happens on the main thread, right after input() returns.
+    pending_downloads: queue.Queue[Download] = queue.Queue()
+
+    def queue_download(download: Download) -> None:
+        pending_downloads.put(download)
+
+    def process_pending_downloads() -> None:
+        while not pending_downloads.empty():
+            download = pending_downloads.get()
+            target = build_download_target(
+                download_dir, download.suggested_filename, download.url
+            )
+            saved_path = save_download_to_path(download, target)
+            print(f"\nDownload saved to: {saved_path}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -295,13 +301,13 @@ def main() -> None:
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
         )
-        context.on("download", save_manual_download)
+        context.on("download", queue_download)
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         context.add_init_script(JS_HELPERS)  # available on every page/navigation
         page = context.new_page()
-        page.on("download", save_manual_download)
+        page.on("download", queue_download)
         page.goto("https://www.ns.nl/")
 
         print(f"Downloads will be saved to: {download_dir}")
@@ -317,6 +323,9 @@ def main() -> None:
         while True:
             answer = input(prompt).strip().lower()
             prompt = later_prompt
+            # Flush before checking for quit -- otherwise a download clicked
+            # just before typing 'q' could be dropped when the browser closes.
+            process_pending_downloads()
             if answer == "q":
                 break
             try:
