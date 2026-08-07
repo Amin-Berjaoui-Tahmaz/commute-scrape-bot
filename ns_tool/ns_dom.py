@@ -194,3 +194,30 @@ def switch_to_declarations(page: Page) -> Optional[int]:
             "The 'declarations' radio did not register as checked."
         )
     return get_declared_count(page)
+
+def switch_to_all_trips(page: Page) -> None:
+    """Reset the bottom filter bar to the full journey list.
+
+    This is important when processing multiple periods in the same browser
+    session. Mijn NS can retain the declarations filter after the previous
+    download, which prevents the next declarations view from being
+    properly refreshed.
+    """
+    radios = page.locator("input[type=radio]")
+    n = radios.count()
+
+    logger.debug("found %d radio button(s) on the page", n)
+
+    if n < 2:
+        raise RuntimeError(
+            f"Expected at least 2 radio buttons in the download bar, found {n}."
+        )
+
+    radios.nth(0).check(force=True)
+
+    time.sleep(1)
+
+    if not radios.nth(0).is_checked():
+        raise RuntimeError(
+            "The 'all trips' radio did not register as checked."
+        )
