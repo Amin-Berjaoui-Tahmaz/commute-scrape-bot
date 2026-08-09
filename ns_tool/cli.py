@@ -541,12 +541,28 @@ def main() -> None:
         scan_requested = threading.Event()
         browser_closed = threading.Event()
 
-        # Fires when the browser process disconnects for any reason --
-        # including the person closing the window -- so the wait loop
-        # below can exit cleanly instead of needing Ctrl+C.
+        # "browser.on('disconnected', ...)" alone isn't reliable here:
+        # with channel="chrome" (real Chrome, not bundled Chromium),
+        # closing the last window often leaves Chrome running quietly in
+        # the background, so the process-level disconnect never fires.
+        # Watching each page's own "close" event is more direct -- it
+        # fires as soon as the tab/window itself is closed, regardless
+        # of whether the underlying process sticks around.
         browser.on(
             "disconnected",
             lambda _browser: browser_closed.set(),
+        )
+
+        def _on_page_closed(_closed_page: Page) -> None:
+            if not context.pages:
+                browser_closed.set()
+
+        def _track_page(new_page: Page) -> None:
+            new_page.on("close", _on_page_closed)
+
+        context.on(
+            "page",
+            _track_page,
         )
 
         context.add_init_script(
@@ -554,6 +570,7 @@ def main() -> None:
         )
 
         page = context.new_page()
+        _track_page(page)
 
         def _watch_stdin() -> None:
             while True:
