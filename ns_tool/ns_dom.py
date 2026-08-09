@@ -12,7 +12,7 @@ import re
 import time
 from typing import Optional, TypedDict, cast
 
-from playwright.sync_api import Page
+from playwright.sync_api import BrowserContext, Page
 
 
 class ScrapedRow(TypedDict):
@@ -125,6 +125,106 @@ SCRAPE_ROWS_JS = (
 )
 
 DECLARED_COUNT_JS = "() => window.__ns.deepText(document.body)"
+
+# A small floating control mounted directly on the NS page, so the person
+# never has to alt-tab to a terminal to advance the loop. Uses a plain
+# `<div>` appended to `<body>` (outside Angular's own component tree) so
+# it survives Angular's route changes; add_init_script re-injects it after
+# any full navigation (e.g. login redirects), guarded by the id check so
+# it's never mounted twice.
+#
+# Deliberately NOT using page.expose_function()/context.expose_function()
+# here -- in testing against the real NS site those CDP-backed bindings
+# never fired (possibly a Chrome-channel or CDP quirk with that site).
+# Instead the button just sets a plain `window` flag, and Python polls
+# for it with page.evaluate() -- the same mechanism the rest of this file
+# already uses successfully for scraping, so it's a known-reliable path.
+SCAN_BUTTON_JS = r"""
+(() => {
+    function mount() {
+        if (document.getElementById('ns-tool-overlay')) return;
+
+        const box = document.createElement('div');
+        box.id = 'ns-tool-overlay';
+        box.style.cssText = `
+            position: fixed; bottom: 96px; right: 16px; z-index: 999999;
+            background: #0a2540; color: #fff; padding: 16px 20px;
+            border-radius: 10px; font: 15px/1.4 system-ui, sans-serif;
+            box-shadow: 0 4px 16px rgba(0,0,0,.3); max-width: 300px;
+        `;
+        box.innerHTML = `
+            <div id="ns-tool-status" style="margin-bottom:10px;">
+                Select a period, then:
+            </div>
+            <button id="ns-tool-scan-btn" style="
+                width:100%; padding:14px 18px; border:none; border-radius:8px;
+                background:#ffc917; color:#0a2540; font-weight:600; font-size:16px;
+                cursor:pointer;
+            ">Scan + select trips</button>
+        `;
+
+        document.body.appendChild(box);
+
+        document.getElementById('ns-tool-scan-btn').addEventListener('click', () => {
+            const btn = document.getElementById('ns-tool-scan-btn');
+            btn.disabled = true;
+            btn.textContent = 'Working...';
+            window.__nsToolScanRequested = true;
+        });
+    }
+
+    if (document.body) mount();
+    else document.addEventListener('DOMContentLoaded', mount);
+})();
+"""
+
+SET_OVERLAY_STATUS_JS = r"""
+([message, ready]) => {
+    const status = document.getElementById('ns-tool-status');
+    const btn = document.getElementById('ns-tool-scan-btn');
+    if (status) status.textContent = message;
+    if (btn) {
+        btn.disabled = !ready;
+        btn.textContent = ready ? 'Scan + select trips' : 'Working...';
+    }
+}
+"""
+
+POLL_SCAN_REQUESTED_JS = r"""
+() => {
+    const v = !!window.__nsToolScanRequested;
+    window.__nsToolScanRequested = false;
+    return v;
+}
+"""
+
+
+def set_overlay_status(page: Page, message: str, *, ready: bool) -> None:
+    """Update the on-page overlay's status text and button state. Safe to
+    call even if the overlay hasn't mounted yet (e.g. page mid-navigation)
+    -- the element lookups inside just come back empty and it's a no-op."""
+    try:
+        page.evaluate(SET_OVERLAY_STATUS_JS, [message, ready])
+    except Exception as e:
+        logger.debug("set_overlay_status skipped: %s", e)
+
+
+def poll_scan_requested(context: BrowserContext) -> Optional[Page]:
+    """Check every open page in the context for a pending button click,
+    clearing the flag on whichever page has it set.
+
+    Checking *every* page, not just a single tracked one, guards against
+    NS's login flow opening a new tab -- if that happens, the button the
+    person actually clicks lives on a different Page object than the one
+    the script started with.
+    """
+    for p in context.pages:
+        try:
+            if p.evaluate(POLL_SCAN_REQUESTED_JS):
+                return p
+        except Exception as e:
+            logger.debug("poll_scan_requested skipped a page: %s", e)
+    return None
 
 
 def scroll_to_load_all(page: Page, max_rounds: int = 40, pause: float = 0.4) -> int:

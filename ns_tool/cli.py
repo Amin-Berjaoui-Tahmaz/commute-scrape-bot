@@ -4,13 +4,14 @@ Workflow:
   1. Open browser.
   2. Log in and navigate to Journey history & transactions.
   3. Set the desired period and click Show.
-  4. Press Enter.
+  4. Click "Scan + select trips" in the browser overlay (or press Enter
+     in the terminal -- both work).
   5. Bot scans and selects the relevant trips.
   6. Bot switches to the declarations view.
   7. Review the declarations and click Download in the browser.
   8. The PDF is automatically saved to ./downloads/.
   9. Change the period in the browser and click Show.
- 10. Press Enter again.
+ 10. Click the button (or press Enter) again.
  11. Repeat for as many periods as needed.
  12. Press Ctrl+C when finished.
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -31,9 +33,12 @@ from playwright.sync_api import sync_playwright
 from .config import DEFAULT_CONFIG_PATH, load_config, run_setup_wizard
 from .ns_dom import (
     JS_HELPERS,
+    SCAN_BUTTON_JS,
     get_declared_count,
     get_rows_with_dates,
+    poll_scan_requested,
     scroll_to_load_all,
+    set_overlay_status,
     switch_to_declarations,
     switch_to_all_trips,
 )
@@ -413,6 +418,11 @@ def parse_args() -> argparse.Namespace:
 # --------------------------------------------------------------------------
 
 
+class _BrowserClosed(Exception):
+    """Internal signal: the browser window was closed by the person,
+    rather than via Ctrl+C. Used purely for control flow in main()."""
+
+
 def main() -> None:
     args = parse_args()
 
@@ -516,7 +526,64 @@ def main() -> None:
             JS_HELPERS
         )
 
+        # --------------------------------------------------------------
+        # On-page control: a floating button on the NS site itself, so
+        # advancing the loop doesn't require switching to the terminal.
+        # Enter in the terminal still works too, as a fallback.
+        #
+        # The button sets a plain `window` flag rather than calling back
+        # into Python directly -- expose_function()'s CDP binding didn't
+        # fire reliably against the real NS site, so Python instead polls
+        # for the flag with page.evaluate(), same as the scraping code
+        # elsewhere in this file.
+        # --------------------------------------------------------------
+
+        scan_requested = threading.Event()
+        browser_closed = threading.Event()
+
+        # "browser.on('disconnected', ...)" alone isn't reliable here:
+        # with channel="chrome" (real Chrome, not bundled Chromium),
+        # closing the last window often leaves Chrome running quietly in
+        # the background, so the process-level disconnect never fires.
+        # Watching each page's own "close" event is more direct -- it
+        # fires as soon as the tab/window itself is closed, regardless
+        # of whether the underlying process sticks around.
+        browser.on(
+            "disconnected",
+            lambda _browser: browser_closed.set(),
+        )
+
+        def _on_page_closed(_closed_page: Page) -> None:
+            if not context.pages:
+                browser_closed.set()
+
+        def _track_page(new_page: Page) -> None:
+            new_page.on("close", _on_page_closed)
+
+        context.on(
+            "page",
+            _track_page,
+        )
+
+        context.add_init_script(
+            SCAN_BUTTON_JS
+        )
+
         page = context.new_page()
+        _track_page(page)
+
+        def _watch_stdin() -> None:
+            while True:
+                try:
+                    input()
+                except EOFError:
+                    return
+                scan_requested.set()
+
+        threading.Thread(
+            target=_watch_stdin,
+            daemon=True,
+        ).start()
 
         page.goto(
             "https://www.ns.nl/"
@@ -537,34 +604,67 @@ def main() -> None:
         )
 
         print(
-            ">>> Press Enter to process the current period."
+            ">>> Then click 'Scan + select trips' in the browser "
+            "(bottom-right corner) -- or press Enter here."
         )
 
         # ----------------------------------------------------------
         # MULTI-PERIOD LOOP
         # ----------------------------------------------------------
 
+        active_page = page
+
         try:
             while True:
 
                 # --------------------------------------------------
-                # User selects/loads the period in the browser
+                # User selects/loads the period, then triggers the
+                # scan via the on-page button or Enter in the terminal.
+                # Poll every 300ms for either; whichever page the
+                # button was actually clicked on becomes active_page.
                 # --------------------------------------------------
 
-                input(
-                    "\n>>> Press Enter to scan + select: "
+                while True:
+                    if browser_closed.is_set():
+                        raise _BrowserClosed()
+
+                    if scan_requested.is_set():
+                        scan_requested.clear()
+                        break
+
+                    clicked_page = poll_scan_requested(context)
+
+                    if clicked_page is not None:
+                        active_page = clicked_page
+                        break
+
+                    time.sleep(0.3)
+
+                set_overlay_status(
+                    active_page,
+                    "Working...",
+                    ready=False,
                 )
 
                 # --------------------------------------------------
                 # Process it
                 # --------------------------------------------------
 
-                downloaded = run_one_period(
-                    page=page,
-                    work_stations=work_stations,
-                    max_gap_minutes=max_gap_minutes,
-                    download_dir=download_dir,
-                )
+                try:
+                    downloaded = run_one_period(
+                        page=active_page,
+                        work_stations=work_stations,
+                        max_gap_minutes=max_gap_minutes,
+                        download_dir=download_dir,
+                    )
+                except Exception:
+                    # The browser can disconnect mid-scan too (e.g. the
+                    # person closes it while a download is in flight) --
+                    # if that's why this failed, exit quietly instead of
+                    # showing a scary traceback for an expected shutdown.
+                    if browser_closed.is_set():
+                        raise _BrowserClosed()
+                    raise
 
                 # --------------------------------------------------
                 # Prepare for next period
@@ -574,6 +674,17 @@ def main() -> None:
                     print(
                         "\n✓ Finished this period."
                     )
+                    set_overlay_status(
+                        active_page,
+                        "✓ Saved. Select another period, then click again.",
+                        ready=True,
+                    )
+                else:
+                    set_overlay_status(
+                        active_page,
+                        "No matching trips. Check the period, then click again.",
+                        ready=True,
+                    )
 
                 print(
                     "\n>>> You can now select another period "
@@ -581,7 +692,7 @@ def main() -> None:
                 )
 
                 print(
-                    ">>> Then press Enter to process it."
+                    ">>> Then click the button (or press Enter) again."
                 )
 
                 print(
@@ -593,8 +704,16 @@ def main() -> None:
                 "\n\nStopping -- closing browser."
             )
 
+        except _BrowserClosed:
+            print(
+                "\n\nBrowser was closed -- stopping."
+            )
+
         finally:
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
