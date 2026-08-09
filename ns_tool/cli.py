@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from .config import load_config
+from .config import DEFAULT_CONFIG_PATH, load_config, run_setup_wizard
 from .ns_dom import (
     JS_HELPERS,
     get_declared_count,
@@ -428,7 +429,19 @@ def main() -> None:
     # Configuration
     # --------------------------------------------------------------
 
-    config = load_config(args.config_path)
+    # Only offer the wizard for the default path, and only when someone
+    # is actually sitting at a terminal -- never in scripts/CI, and never
+    # when --config points somewhere specific (that's a deliberate choice
+    # the user already made, so a missing file there should just error
+    # out via load_config as before).
+    if (
+        args.config_path == DEFAULT_CONFIG_PATH
+        and not args.config_path.exists()
+        and sys.stdin.isatty()
+    ):
+        config = run_setup_wizard(args.config_path)
+    else:
+        config = load_config(args.config_path)
 
     work_stations = (
         args.work_stations
