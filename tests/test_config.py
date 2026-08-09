@@ -5,6 +5,7 @@ from ns_tool.config import (
     DEFAULT_MAX_TRANSFER_GAP_MINUTES,
     DEFAULT_WORK_STATIONS,
     load_config,
+    run_setup_wizard,
 )
 
 
@@ -82,3 +83,28 @@ def test_load_config_default_path_uses_package_config_when_available(
 
     assert config.max_gap_minutes == 250
     assert config.work_stations == config_module.DEFAULT_WORK_STATIONS
+
+
+def test_run_setup_wizard_writes_answers_to_file(monkeypatch, tmp_path):
+    path = tmp_path / "config.yaml"
+    answers = iter(["Papendrecht, Dordrecht", "15"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    config = run_setup_wizard(path)
+
+    assert config.work_stations == ["Papendrecht", "Dordrecht"]
+    assert config.max_gap_minutes == 15
+
+    # And loading the file back gives the same thing -- the wizard's
+    # output is valid input for load_config.
+    assert load_config(path) == config
+
+
+def test_run_setup_wizard_blank_answers_use_defaults(monkeypatch, tmp_path):
+    path = tmp_path / "config.yaml"
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    config = run_setup_wizard(path)
+
+    assert config.work_stations == DEFAULT_WORK_STATIONS
+    assert config.max_gap_minutes == DEFAULT_MAX_TRANSFER_GAP_MINUTES

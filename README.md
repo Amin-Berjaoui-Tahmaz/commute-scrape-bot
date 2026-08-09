@@ -7,6 +7,20 @@ is saved automatically to `./downloads/` with its real filename. Never
 logs you in, and never clicks Download for you -- that's deliberately
 left as a human review step.
 
+## Quick start
+
+```bash
+uv tool install git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
+playwright install chromium   # one-time, downloads the browser binary
+ns-select
+```
+
+First run with no `config.yaml` walks you through a couple of prompts
+(work station names, transfer gap) and saves your answers -- no file
+editing needed. See [Install](#install) below if you'd rather work from
+a clone, or [Configuring your stations](#configuring-your-stations) to
+edit the file by hand.
+
 ## Layout
 
 ```
@@ -27,15 +41,37 @@ config.example.yaml    Template config -- copy to config.yaml and edit,
 
 ## Install
 
+For development (editable clone, tests, mypy):
+
 ```bash
 uv sync --extra dev
 uv run playwright install chromium
 ```
 
+For just running it -- no clone needed (see Quick start above):
+
+```bash
+uv tool install git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
+playwright install chromium
+```
+
+This works because `pyproject.toml` already declares an `ns-select`
+console script (`[project.scripts]`) -- `uv tool install` reads that and
+puts `ns-select` on your PATH in its own isolated environment, same as
+`pipx`. To pick up a new commit later, rerun the same command with
+`--reinstall`.
+
 ## Configuring your stations
 
-Everything configurable lives in one file: `config.yaml`, in this folder.
-Copy the template and edit it:
+Everything configurable lives in one file: `config.yaml`, in this folder
+(or wherever you run `ns-select`/`uv run -m ns_tool.cli` from).
+
+**First run:** if `config.yaml` doesn't exist yet, the tool asks for your
+work station(s) and transfer gap interactively and writes the file for
+you -- no editing required.
+
+**By hand:** copy the template and edit it yourself if you prefer, or to
+change it later:
 
 ```bash
 cp config.example.yaml config.yaml
@@ -50,17 +86,18 @@ max_gap_minutes: 20
 
 That's it -- no other files, no environment variables. `config.yaml` is
 gitignored, so each user keeps their own copy with their own stations.
-If it doesn't exist, built-in defaults are used (Sliedrecht/Ketelhaven,
-20 min) -- handy for a shared office where most people commute to the
-same stations. CLI flags always override the file, for one-off runs
-without editing it.
+If it doesn't exist and you're not at an interactive terminal (e.g. a
+script or CI), built-in defaults are used instead (Sliedrecht/Ketelhaven,
+20 min). CLI flags always override the file, for one-off runs without
+editing it.
 
 ## Run
 
 ```bash
-uv run -m ns_tool.cli
-uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
-uv run -m ns_tool.cli --debug   # verbose internal diagnostics on stderr
+uv run -m ns_tool.cli   # from a clone
+ns-select                # if installed via `uv tool install`
+ns-select --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
+ns-select --debug         # verbose internal diagnostics on stderr
 ```
 
 Workflow, once per period/month:

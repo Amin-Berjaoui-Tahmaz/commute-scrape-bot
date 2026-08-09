@@ -74,3 +74,46 @@ def load_config(path: Path | None = None) -> Config:
         raise ValueError(f"{resolved_path}: 'max_gap_minutes' must be an integer")
 
     return Config(work_stations, max_gap_minutes)
+
+
+def run_setup_wizard(path: Path = DEFAULT_CONFIG_PATH) -> Config:
+    """Interactively ask for work stations and max gap, then write
+    config.yaml. Used on first run when no config file exists yet --
+    replaces the old "copy config.example.yaml and hand-edit it" step
+    with a couple of prompts."""
+
+    print(
+        "\nNo config.yaml found -- let's set one up "
+        "(press Enter to accept the default shown in brackets).\n"
+    )
+
+    stations_input = input(
+        f"Work station name(s), comma-separated "
+        f"[{', '.join(DEFAULT_WORK_STATIONS)}]: "
+    ).strip()
+
+    work_stations = (
+        [s.strip() for s in stations_input.split(",") if s.strip()]
+        if stations_input
+        else DEFAULT_WORK_STATIONS
+    )
+
+    gap_input = input(
+        f"Max transfer gap in minutes [{DEFAULT_MAX_TRANSFER_GAP_MINUTES}]: "
+    ).strip()
+
+    max_gap_minutes = (
+        int(gap_input) if gap_input else DEFAULT_MAX_TRANSFER_GAP_MINUTES
+    )
+
+    config = Config(work_stations, max_gap_minutes)
+
+    path.write_text(
+        "work_stations:\n"
+        + "".join(f"  - {s}\n" for s in work_stations)
+        + f"max_gap_minutes: {max_gap_minutes}\n"
+    )
+
+    print(f"\nSaved to {path}. Edit it by hand any time, or delete it to be asked again.\n")
+
+    return config
