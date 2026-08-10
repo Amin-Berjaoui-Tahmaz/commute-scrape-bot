@@ -10,17 +10,12 @@ left as a human review step.
 ## Setup
 
 ```bash
-uv tool install git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
-uvx playwright@1.62.0 install chromium   # one-time, downloads the browser binary
-ns-select
+git clone https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
+cd commute-scrape-bot
+uv sync --extra dev
+uv run playwright install chromium   # one-time, downloads the browser binary
+uv run -m ns_tool.cli
 ```
-
-`playwright` itself only ends up as a dependency inside `ns-tool`'s
-isolated environment, not on your PATH -- `uvx` runs it directly without
-needing it installed globally, and the browser binary it downloads lands
-in a shared cache Playwright checks regardless of which environment
-triggered the download. If a newer `ns-tool` release bumps its Playwright
-version, match the version number above to what `uv tool install` printed.
 
 First run with no `config.yaml` walks you through a couple of prompts
 (work station names, transfer gap) and saves your answers.
@@ -35,14 +30,22 @@ work_stations:
 max_gap_minutes: 20
 ```
 
-Prefer a clone instead of `uv tool install`? `uv sync --extra dev && uv run playwright install chromium`, then `uv run -m ns_tool.cli`.
+Just want to run it without keeping a clone around? `uv tool install
+git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git` gives
+you an `ns-select` command instead of `uv run -m ns_tool.cli` -- but then
+`playwright install chromium` needs `uvx playwright@<version> install
+chromium` instead, since `playwright` itself won't be on your PATH. The
+version number to use is whatever `uv tool install` printed for the
+`playwright` package.
 
 ## Running it
 
 ```bash
-ns-select
-ns-select --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
+uv run -m ns_tool.cli
+uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
 ```
+
+(or `ns-select` in place of `uv run -m ns_tool.cli`, if you installed via `uv tool install`)
 
 1. In the browser, log in and go to "Journey history & transactions", set
    the period you want, and click Show.
