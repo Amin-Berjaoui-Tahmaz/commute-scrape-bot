@@ -30,14 +30,6 @@ work_stations:
 max_gap_minutes: 20
 ```
 
-Just want to run it without keeping a clone around? `uv tool install
-git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git` gives
-you an `ns-select` command instead of `uv run -m ns_tool.cli` -- but then
-`playwright install chromium` needs `uvx playwright@<version> install
-chromium` instead, since `playwright` itself won't be on your PATH. The
-version number to use is whatever `uv tool install` printed for the
-`playwright` package.
-
 ## Running it
 
 ```bash
