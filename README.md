@@ -10,8 +10,8 @@ left as a human review step.
 ## Setup
 
 ```bash
-git clone https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
-cd commute-scrape-bot
+git clone https://github.com/Amin-Berjaoui-Tahmaz/ns-tool.git
+cd ns-tool
 uv sync --extra dev
 uv run playwright install chromium   # one-time, downloads the browser binary
 uv run -m ns_tool.cli
