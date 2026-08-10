@@ -51,23 +51,23 @@ uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-
 
 ## How chain matching works
 
-A real commute is often several legs back to back. The tool links
-same-day legs into a chain when one leg's arrival station roughly
-matches the next leg's departure station within `max_gap_minutes`, then
-selects the *whole* chain the moment *any* leg touches a work station --
-walking backward to also pick up earlier legs that don't mention a work
-station at all:
+A real commute is often several trip segments back to back. The tool
+links same-day segments into a chain when one segment's arrival station
+roughly matches the next segment's departure station within
+`max_gap_minutes`, then selects the *whole* chain the moment *any*
+segment touches a work station -- walking backward to also pick up
+earlier segments that don't mention a work station at all:
 
 ```
-   Home              Hub            Sliedrecht
-     o───────────────►o───────────────►o
-     │  08:00-08:20   │  08:25-08:50   │
-     └── leg 1 ───────┘── leg 2 ───────┘
-                                        ▲
-                             matches a work_station
-                                        │
-     ◄──────────── walk back ───────────
-     leg 1 gets selected too, even though
+   Home                 Hub               Sliedrecht
+     o──────────────────►o──────────────────►o
+     │   08:00-08:20     │   08:25-08:50     │
+     └──── segment 1 ────┘──── segment 2 ────┘
+                                             ▲
+                                   matches a work_station
+                                             │
+     ◄─────────────── walk back ─────────────
+     segment 1 gets selected too, even though
      "Home -> Hub" never mentions work at all
 ```
 
