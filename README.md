@@ -2,19 +2,28 @@
 
 Mijn NS work-trip selector. Selects (checks) the checkboxes for your
 work-related trips and switches to the declarations filter so you can
-review them -- then you click Download **yourself**, and the resulting file
-is saved automatically to `./downloads/` with its real filename.
+review them -- then you click Download yourself, and the resulting file
+is saved automatically to `./downloads/` with its real filename. Never
+logs you in, and never clicks Download for you -- that's deliberately
+left as a human review step.
 
 ## Setup
 
 ```bash
 uv tool install git+https://github.com/Amin-Berjaoui-Tahmaz/commute-scrape-bot.git
-playwright install chromium   # one-time, downloads the browser binary
+uvx playwright@1.62.0 install chromium   # one-time, downloads the browser binary
 ns-select
 ```
 
-First run with walks you through a couple of prompts
-(work station names, transfer gap) and saves your answers. Just click **Enter** if the default values are fine (which should be the case for most people).
+`playwright` itself only ends up as a dependency inside `ns-tool`'s
+isolated environment, not on your PATH -- `uvx` runs it directly without
+needing it installed globally, and the browser binary it downloads lands
+in a shared cache Playwright checks regardless of which environment
+triggered the download. If a newer `ns-tool` release bumps its Playwright
+version, match the version number above to what `uv tool install` printed.
+
+First run with no `config.yaml` walks you through a couple of prompts
+(work station names, transfer gap) and saves your answers.
 
 To change your stations later, edit `config.yaml` directly (or delete it
 to be asked again):
