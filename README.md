@@ -37,8 +37,6 @@ uv run -m ns_tool.cli
 uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
 ```
 
-(or `ns-select` in place of `uv run -m ns_tool.cli`, if you installed via `uv tool install`)
-
 1. In the browser, log in and go to "Journey history & transactions", set
    the period you want, and click Show.
 2. Click "Scan + select trips" in the overlay button (bottom-right of the
