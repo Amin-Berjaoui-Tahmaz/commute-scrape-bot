@@ -37,7 +37,9 @@ uv run -m ns_tool.cli
 uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-gap 15
 ```
 
-1. In the browser, log in and go to "Journey history & transactions", set
+1. In the browser, log in and switch the language to English (Important!
+   Support for Dutch will come in later updates)
+2. Go to "Journey history & transactions", set
    the period you want, and click Show.
 2. Click "Scan + select trips" in the overlay button (bottom-right of the
    page) -- or press Enter in the terminal, whichever's easier.
