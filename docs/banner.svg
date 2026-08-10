@@ -1,0 +1,40 @@
+<svg viewBox="0 0 960 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ns-tool banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a2540"/>
+      <stop offset="100%" stop-color="#0f3157"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="220" rx="18" fill="url(#bg)"/>
+
+  <!-- track ties, purely decorative -->
+  <g stroke="#173a63" stroke-width="4">
+    <line x1="0" y1="196" x2="960" y2="196"/>
+    <line x1="40" y1="188" x2="40" y2="204"/>
+    <line x1="90" y1="188" x2="90" y2="204"/>
+    <line x1="140" y1="188" x2="140" y2="204"/>
+    <line x1="190" y1="188" x2="190" y2="204"/>
+    <line x1="240" y1="188" x2="240" y2="204"/>
+  </g>
+
+  <!-- icon: station platform mark + checkbox, echoes the on-page button -->
+  <g transform="translate(56,54)">
+    <rect x="0" y="0" width="108" height="108" rx="20" fill="#0f3157" stroke="#1c4a7a" stroke-width="2"/>
+    <!-- simplified train front -->
+    <rect x="24" y="26" width="60" height="42" rx="10" fill="#e8eef5"/>
+    <rect x="30" y="34" width="20" height="16" rx="3" fill="#0a2540"/>
+    <rect x="58" y="34" width="20" height="16" rx="3" fill="#0a2540"/>
+    <circle cx="36" cy="72" r="6" fill="#0a2540"/>
+    <circle cx="72" cy="72" r="6" fill="#0a2540"/>
+    <!-- checkmark badge -->
+    <circle cx="86" cy="24" r="17" fill="#ffc917"/>
+    <path d="M78 24 L84 30 L95 17" fill="none" stroke="#0a2540" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <g transform="translate(196,70)" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+    <text x="0" y="46" font-size="56" font-weight="800" fill="#ffc917">ns<tspan fill="#f4f7fb">-tool</tspan></text>
+    <text x="4" y="82" font-size="20" fill="#a9bdd6">Select your work trips, automatically.</text>
+  </g>
+</svg>

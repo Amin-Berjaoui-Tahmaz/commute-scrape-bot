@@ -1,5 +1,7 @@
 # ns-tool
 
+<p align="center"> <img src="docs/banner.svg" alt="ns-tool banner" width="640"> </p>
+
 Mijn NS work-trip selector. Selects (checks) the checkboxes for your
 work-related trips and switches to the declarations filter so you can
 review them -- then you click Download yourself, and the resulting file
@@ -41,14 +43,17 @@ uv run -m ns_tool.cli --work-station Sliedrecht --work-station Ketelhaven --max-
    Support for Dutch will come in later updates)
 2. Go to "Journey history & transactions", set
    the period you want, and click Show.
-2. Click "Scan + select trips" in the overlay button (bottom-right of the
+3. Click "Scan + select trips" in the overlay button (bottom-right of the
    page) -- or press Enter in the terminal, whichever's easier.
-3. The script scans the page, chains same-day trips together (see below),
+
+   <img src="docs/button.png" alt="Diagram showing the overlay button's position on the page, clear of the site's own Download button" width="520">
+
+4. The script scans the page, chains same-day trips together (see below),
    checks the boxes for any chain touching a work station, and switches
    the bottom bar to "X declarations".
-4. Review on the page, then click Download yourself whenever you're
+5. Review on the page, then click Download yourself whenever you're
    ready -- it's saved to `./downloads/` automatically.
-5. Change the period in the browser, click/press again to repeat. Close
+6. Change the period in the browser, click/press again to repeat. Close
    the browser or press Ctrl+C when done.
 
 ## How chain matching works
