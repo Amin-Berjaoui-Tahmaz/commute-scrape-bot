@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 downloads/
+*.egg-info/
 
 # Personal config -- each colleague's own work stations, not shared.
 config.yaml
